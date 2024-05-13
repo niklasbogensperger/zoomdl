@@ -26,6 +26,7 @@ class ZoomDL():
         self.url, self.domain, self.subdomain = "", "", ""
         self.metadata = None
         self.session = requests.session()
+        self.exit_code = 0
 
         self.loglevel = self.args.log_level
 
@@ -68,6 +69,11 @@ class ZoomDL():
         """
         if level < 5 and level >= self.loglevel:
             print(message)
+
+        """Set system exit code to 1 if zoomdl encounters a (critical) error."""
+        # there is potential here for more granular exit codes if desired
+        if level < 5 and level >= 3:
+            self.exit_code = 1
 
     def _change_page(self, url):
         """Change page, with side methods."""
@@ -354,7 +360,8 @@ class ZoomDL():
             count_clips = self.args.count_clips
             filename = self.args.filename
             if count_clips == 1:  # only download this
-                self.download_vid(filename)
+                if not self.args.simulate:
+                    self.download_vid(filename)
                 if self.args.dump_pagemeta:
                     self.dump_page_meta(filename)
             else:  # download multiple
@@ -363,7 +370,8 @@ class ZoomDL():
                 else:  # download as many as asked (or possible)
                     to_download = min(count_clips, total_clips)
                 for clip in range(current_clip, to_download+1):
-                    self.download_vid(filename, clip)
+                    if not self.args.simulate:
+                        self.download_vid(filename, clip)
                     if self.args.dump_pagemeta:
                         self.dump_page_meta(filename, clip)
                     url = self.page.url
@@ -401,15 +409,21 @@ class ZoomDL():
                 meet_id = input_split[3][7:-1]
                 break
         if meet_id is None:
-            self._print("[CRITICAL]Unable to find meetId in the page",
-                        4)
-            if self.loglevel > 0:
-                self._print("Please re-run with option -v 0 "
-                            "and report it "
-                            "to http://github.com/battleman/zoomdl",
+            #try to find the meetID another way:
+            result=re.search("recordMeetId:\s*'(\S*)',",self.page.text)
+            if result is not None:
+                meet_id=result.group(1);
+            else:
+
+                self._print("[CRITICAL]Unable to find meetId in the page",
                             4)
-            self._print("\n".join(input_tags), 0)
-            sys.exit(1)
+                if self.loglevel > 0:
+                    self._print("Please re-run with option -v 0 "
+                                "and report it "
+                                "to http://github.com/battleman/zoomdl",
+                                4)
+                self._print("\n".join(input_tags), 0)
+                sys.exit(1)
 
         # create POST request
         data = {"id": meet_id, "passwd": self.args.password,
